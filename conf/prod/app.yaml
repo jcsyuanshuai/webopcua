@@ -1,0 +1,6 @@
+source:
+  opcua:
+    url: opc.tcp://localhost:4840/freeopcua/server/
+sinks:
+  db:
+    url:

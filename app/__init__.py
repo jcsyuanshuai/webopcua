@@ -1,15 +1,18 @@
 import pathlib
 
 from aiohttp import web
+from aiohttp_swagger import *
 from dotenv import load_dotenv
 
 base_dir = pathlib.Path(__file__).parent.parent
-conf_dir = base_dir / 'conf' / 'prod'
 load_dotenv(verbose=True)
 
 hook_arr = []
 
 inst = web.Application()
+inst['mode'] = 'prod'
+inst['name'] = __name__
+inst['conf_dir'] = base_dir / 'conf' / inst['mode']
 
 
 def add_hook(*funcs) -> None:
@@ -20,6 +23,7 @@ def add_hook(*funcs) -> None:
 def start() -> None:
     for h in hook_arr:
         h()
+    setup_swagger(inst)
     web.run_app(inst)
 
 

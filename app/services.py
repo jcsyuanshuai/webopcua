@@ -3,11 +3,27 @@ from asyncua import Client
 
 
 async def index(req: web.Request) -> web.Response:
-    return web.Response(text='hello')
+    """
+    ---
+    description: This is index
+    tags:
+    - Health check
+    produces:
+    - text/plain
+    responses:
+        "200":
+            description: successful operation. Return "pong" text
+        "405":
+            description: invalid HTTP Method
+    """
+    return web.json_response({
+        "code": 200,
+        "msg": "success",
+        "data": "hello"
+    })
 
 
 async def discover(req: web.Request) -> web.Response:
-    
     return web.Response(text='')
 
 

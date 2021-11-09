@@ -1,3 +1,4 @@
+import app
 from app.hooks import *
 
 if __name__ == '__main__':
