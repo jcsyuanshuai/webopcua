@@ -5,7 +5,7 @@ from pathlib import Path
 import aiosqlite
 import yaml
 
-from app import inst
+from app import inst, base_dir
 from app.routers import setup_routers
 
 
@@ -22,6 +22,8 @@ def init_env():
 
     if conf_dir is not None and Path(conf_dir).exists():
         inst['conf_dir'] = conf_dir
+    else:
+        inst['conf_dir'] = base_dir / 'conf' / inst['mode']
 
     print(f'app name: {inst["name"]}')
     print(f'app mode: {inst["mode"]}')
@@ -53,4 +55,12 @@ def init_db():
 
 
 def init_middleware():
-    pass
+    async def close_sockets(ap):
+        for ws in ap['wss']:
+            await ws.close()
+
+    inst.on_shutdown.append(close_sockets)
+
+
+def init_websocket():
+    inst['wss'] = []

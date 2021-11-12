@@ -8,5 +8,7 @@ if __name__ == '__main__':
         init_logger,
         init_router,
         init_db,
+        init_middleware,
+        init_websocket,
     )
     app.start()
