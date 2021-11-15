@@ -2,8 +2,8 @@ import aiohttp
 from aiohttp import web
 from asyncua import Client
 
-from core.core import WsSubHandler
 from core.ua import AsyncUaClient
+from core.ua import WsSubHandler
 from service import Ok
 
 routes = web.RouteTableDef()
@@ -46,6 +46,8 @@ async def subscribe(req: web.Request) -> web.WebSocketResponse:
     uri = 'opc.tcp://0.0.0.0:4840/freeopcua/server/'
     await ua.connect(uri)
     node = ua.get_node('ns=2;i=2')
+    handler = WsSubHandler(ws, ua)
+    await ua.subscribe_data_change(node, handler)
 
     try:
         req.app['wss'].append(ws)
@@ -55,12 +57,10 @@ async def subscribe(req: web.Request) -> web.WebSocketResponse:
                 if msg.data == 'close':
                     await ws.close()
                 else:
-                    handler = WsSubHandler(ws, ua)
-                    await ua.subscribe_data_change(node, handler)
+                    await ws.ping()
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 print('ws connection closed with exception %s' %
                       ws.exception())
-
         return ws
     finally:
         print('websocket connection closed')

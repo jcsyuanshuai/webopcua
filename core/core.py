@@ -1,75 +1,168 @@
-from aiohttp import web
-from asyncua import Node, Client
-
-from core.ua import AsyncUaClient
+from asyncua import crypto, ua
+from asyncua.sync import Client, SyncNode
 
 
-class NodeSearcher:
+class SyncUaClient:
+    client: Client = None
+    connected = False
+    subscription = None
+    subscription_returns = {}
 
-    def __init__(self, cli):
-        self.cli = cli
+    def connect(self, uri) -> None:
+        self.disconnect()
+        self.client = Client(uri)
+        self.connected = True
 
-    async def search_by_nid(self, nid) -> Node:
-        await self.cli.connect()
-        node = self.cli.get_node(nid)
-        return node
+    def disconnect(self) -> None:
+        self.connected = False
 
-    async def search_by_chain(self, paths: [str]) -> Node:
-        uri = 'http://examples.freeopcua.github.io'
-        idx = await self.cli.get_namespace_index(uri)
-        paths = ['0:Objects', '2:MyObject', '2:MyVariable']
-        await self.cli.connect()
-        node = await self.cli.nodes.root.get_child(paths)
-        return node
+    def get_node(self, nid) -> SyncNode:
+        return self.client.get_node(nid)
 
-    async def search(self):
-        pass
+    def subscribe_data_change(self, node: SyncNode, handler):
+        if self.client is None:
+            raise "not init client"
+        if not self.subscription:
+            self.subscription = self.client.create_subscription(500, handler)
+        returns = self.subscription.subscribe_data_change(node)
+        self.subscription_returns[node.nodeid] = returns
 
-
-class SubHandler:
-    def datachange_notification(self, node, val, data):
-        print(node, val, data)
-
-    def event_notification(self, event):
-        pass
-
-
-class Subscriber:
-    pass
+    def unsubscribe_data_change(self, node: SyncNode):
+        returns = self.subscription_returns[node.nodeid]
+        self.subscription.unsubscribe(returns)
 
 
-class WsSubHandler(SubHandler):
-    def __init__(self, ws: web.WebSocketResponse, cli: AsyncUaClient):
-        self.ws = ws
-        self.cli = cli
+class UaClient(object):
+    """
+    OPC-Ua client specialized for the need of GUI client
+    return exactly what GUI needs, no customization possible
+    """
 
-    async def datachange_notification(self, node, val, data):
-        try:
-            if not self.ws.closed:
-                await self.ws.send_str(str(val))
-            else:
-                return
-        except ConnectionResetError as e:
-            print(e)
+    def __init__(self):
+        self.settings = {}
+        self.client = None
+        self._connected = False
+        self._datachange_sub = None
+        self._event_sub = None
+        self._subs_dc = {}
+        self._subs_ev = {}
+        self.security_mode = None
+        self.security_policy = None
+        self.certificate_path = None
+        self.private_key_path = None
 
+    def _reset(self):
+        self.client = None
+        self._connected = False
+        self._datachange_sub = None
+        self._event_sub = None
+        self._subs_dc = {}
+        self._subs_ev = {}
 
-class WsSubscriber:
+    # @staticmethod
+    # def get_endpoints(uri):
+    #     client = Client(uri, timeout=2)
+    #     edps = client.connect_and_get_server_endpoints()
+    #     for i, ep in enumerate(edps, start=1):
+    #         logger.info('Endpoint %s:', i)
+    #         for (n, v) in endpoint_to_strings(ep):
+    #             logger.info('  %s: %s', n, v)
+    #         logger.info('')
+    #     return edps
 
-    def __init__(self, url, ws: web.WebSocketResponse):
-        url = 'opc.tcp://localhost:4840/freeopcua/server/'
-        self.url = url
-        self.ws = ws
-        self.client = Client(self.url)
-        self.searcher = NodeSearcher(self.client)
-        self.handler = WsSubHandler(ws)
+    def load_security_settings(self, uri):
+        self.security_mode = None
+        self.security_policy = None
+        self.certificate_path = None
+        self.private_key_path = None
 
-    async def subscribe_by_nid(self, nid):
-        sub = await self.client.create_subscription(500, self)
-        node = await self.searcher.search_by_nid(nid)
-        self.client.sub
-        await sub.subscribe_data_change(node)
+        # mysettings = self.settings.value("security_settings", None)
+        mysettings = None
+        if mysettings is None:
+            return
+        if uri in mysettings:
+            mode, policy, cert, key = mysettings[uri]
+            self.security_mode = mode
+            self.security_policy = policy
+            self.certificate_path = cert
+            self.private_key_path = key
 
-    async def subscribe_by_paths(self, paths):
-        sub = await self.client.create_subscription(500, self)
-        node = await self.searcher.search_by_chain(paths)
-        await sub.subscribe_data_change(node)
+    def save_security_settings(self, uri):
+        # mysettings = self.settings.value("security_settings", None)
+        mysettings = None
+        if mysettings is None:
+            mysettings = {}
+        mysettings[uri] = [self.security_mode,
+                           self.security_policy,
+                           self.certificate_path,
+                           self.private_key_path]
+        # self.settings.setValue("security_settings", mysettings)
+        mysettings = None
+
+    def get_node(self, nodeid):
+        return self.client.get_node(nodeid)
+
+    def connect(self, uri):
+        self.disconnect()
+        logger.info("Connecting to %s with parameters %s, %s, %s, %s", uri,
+                    self.security_mode, self.security_policy,
+                    self.certificate_path, self.private_key_path)
+        self.client = Client(uri)
+        if self.security_mode is not None and self.security_policy is not None:
+            self.client.set_security(
+                getattr(crypto.security_policies,
+                        'SecurityPolicy' + self.security_policy),
+                self.certificate_path,
+                self.private_key_path,
+                mode=getattr(ua.MessageSecurityMode, self.security_mode)
+            )
+        self.client.connect()
+        self._connected = True
+        self.client.load_data_type_definitions()
+        self.client.load_enums()
+        self.client.load_type_definitions()
+        self.save_security_settings(uri)
+
+    def disconnect(self):
+        if self._connected:
+            print("Disconnecting from server")
+            self._connected = False
+            try:
+                self.client.disconnect()
+            finally:
+                self._reset()
+
+    def subscribe_datachange(self, node, handler):
+        if not self._datachange_sub:
+            self._datachange_sub = self.client.create_subscription(500, handler)
+        handle = self._datachange_sub.subscribe_data_change(node)
+        self._subs_dc[node.nodeid] = handle
+        return handle
+
+    def unsubscribe_datachange(self, node):
+        self._datachange_sub.unsubscribe(self._subs_dc[node.nodeid])
+
+    def subscribe_events(self, node, handler):
+        if not self._event_sub:
+            print("subscirbing with handler: ", handler, dir(handler))
+            self._event_sub = self.client.create_subscription(500, handler)
+        handle = self._event_sub.subscribe_events(node)
+        self._subs_ev[node.nodeid] = handle
+        return handle
+
+    def unsubscribe_events(self, node):
+        self._event_sub.unsubscribe(self._subs_ev[node.nodeid])
+
+    def get_node_attrs(self, node):
+        if not isinstance(node, SyncNode):
+            node = self.client.get_node(node)
+        attrs = node.read_attributes(
+            [ua.AttributeIds.DisplayName, ua.AttributeIds.BrowseName,
+             ua.AttributeIds.NodeId])
+        return node, [attr.Value.Value.to_string() for attr in attrs]
+
+    @staticmethod
+    def get_children(node):
+        descs = node.get_children_descriptions()
+        descs.sort(key=lambda x: x.BrowseName)
+        return descs
