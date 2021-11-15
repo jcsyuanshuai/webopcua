@@ -1,4 +1,3 @@
-import logging
 import os
 from pathlib import Path
 
@@ -41,7 +40,8 @@ def init_config():
 
 
 def init_logger():
-    logging.basicConfig(level=logging.DEBUG)
+    # logging.basicConfig(level=logging.DEBUG)
+    pass
 
 
 def init_router():

@@ -1,7 +1,9 @@
 import aiohttp
 from aiohttp import web
-from asyncua import Client, Node
+from asyncua import Client
 
+from core.core import WsSubHandler
+from core.ua import AsyncUaClient
 from service import Ok
 
 routes = web.RouteTableDef()
@@ -40,14 +42,21 @@ async def subscribe(req: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(req)
     await ws.send_str('connect success')
+    ua = AsyncUaClient()
+    uri = 'opc.tcp://0.0.0.0:4840/freeopcua/server/'
+    await ua.connect(uri)
+    node = ua.get_node('ns=2;i=2')
+
     try:
         req.app['wss'].append(ws)
+
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 if msg.data == 'close':
                     await ws.close()
                 else:
-                    WsSubscriber(ws)
+                    handler = WsSubHandler(ws, ua)
+                    await ua.subscribe_data_change(node, handler)
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 print('ws connection closed with exception %s' %
                       ws.exception())
@@ -55,41 +64,5 @@ async def subscribe(req: web.Request) -> web.WebSocketResponse:
         return ws
     finally:
         print('websocket connection closed')
+        await ua.unsubscribe_data_change(node)
         req.app['wss'].remove(ws)
-
-
-class NodeSearcher:
-    cli = None
-
-    def __init__(self, url):
-        self.cli = Client(url)
-
-    def search_by_nid(self, nid):
-        pass
-
-    def search_by_chain(self, chain):
-        pass
-
-
-class WsSubscriber:
-    url = 'opc.tcp://localhost:4840/freeopcua/server/'
-
-    def __init__(self, ws: web.WebSocketResponse):
-        self.ws = ws
-
-    async def get_node(self) -> Node:
-        client = Client(url=self.url)
-        await client.connect()
-        uri = 'http://examples.freeopcua.github.io'
-        idx = await client.get_namespace_index(uri)
-        node = await client.nodes.root.get_child(
-            ["0:Objects", f"{idx}:MyObject", f"{idx}:MyVariable"])
-        return node
-        sub = await client.create_subscription(500, self)
-        await sub.subscribe_data_change(node)
-
-    async def datachange_notification(self, node, val, data):
-        await self.ws.send_str(val)
-
-    def event_notification(self, event):
-        pass
